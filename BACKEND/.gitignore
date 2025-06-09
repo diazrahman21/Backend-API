@@ -1,21 +1,3 @@
-# Environment variables
-.env
-.env.*
-!.env.example
 
 # Dependencies
-node_modules/
-package-lock.json
-
-# Logs
-logs
-*.log
-npm-debug.log*
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Build files
-dist/
-build/
+node_modules
