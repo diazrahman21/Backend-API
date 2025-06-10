@@ -5,33 +5,31 @@ require('dotenv').config();
 const init = async () => {
     const server = Hapi.server({
         port: process.env.PORT || 5001,
-        host: process.env.HOST || '0.0.0.0', // Change to 0.0.0.0 for production
+        host: process.env.HOST || '0.0.0.0',
         routes: {
             cors: {
-                origin: [
-                    'http://localhost:3000',
-                    'http://localhost:5173', 
-                    'https://your-frontend-domain.com',
-                    'https://illdetect-frontend.vercel.app', // Add your actual frontend domain
-                    'https://illdetect-frontend.netlify.app'  // Add your actual frontend domain
-                ],
+                origin: ['*'], // Allow all origins temporarily for testing
                 headers: [
                     'Accept', 
                     'Authorization', 
                     'Content-Type', 
                     'If-None-Match',
                     'X-Session-ID',
-                    'X-Requested-With'
+                    'X-Requested-With',
+                    'Origin',
+                    'User-Agent'
                 ],
                 additionalHeaders: [
                     'cache-control', 
                     'x-requested-with',
                     'Access-Control-Allow-Origin',
                     'Access-Control-Allow-Methods',
-                    'Access-Control-Allow-Headers'
+                    'Access-Control-Allow-Headers',
+                    'Access-Control-Allow-Credentials'
                 ],
                 credentials: true,
-                exposedHeaders: ['X-Session-ID', 'X-Response-Time']
+                exposedHeaders: ['X-Session-ID', 'X-Response-Time'],
+                additionalExposedHeaders: ['X-Custom-Header']
             }
         }
     });

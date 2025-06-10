@@ -137,10 +137,31 @@ async function predictCardiovascularRisk(formData) {
 module.exports = {
     name: 'prediction-routes',
     register: async function (server) {
+        // Add global OPTIONS handler for all /api/* routes
+        server.route({
+            method: 'OPTIONS',
+            path: '/api/{path*}',
+            handler: (request, h) => {
+                return h.response()
+                    .code(200)
+                    .header('Access-Control-Allow-Origin', '*')
+                    .header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+                    .header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-ID, Origin, X-Requested-With')
+                    .header('Access-Control-Allow-Credentials', 'true')
+                    .header('Access-Control-Max-Age', '86400');
+            }
+        });
+
         // Health check endpoint for ML service
         server.route({
             method: 'GET',
             path: '/api/ml-health',
+            options: {
+                cors: {
+                    origin: ['*'],
+                    credentials: false
+                }
+            },
             handler: async (request, h) => {
                 try {
                     // Try multiple health endpoints
@@ -178,7 +199,9 @@ module.exports = {
                                 response_time: `${Date.now()}ms`,
                                 timestamp: new Date().toISOString()
                             }
-                        }).code(200);
+                        })
+                        .code(200)
+                        .header('Access-Control-Allow-Origin', '*');
                     }
                     
                     throw new Error('All health endpoints failed');
@@ -206,9 +229,9 @@ module.exports = {
             path: '/api/predict',
             options: {
                 cors: {
-                    origin: ['*'], // Allow all origins for prediction endpoint
+                    origin: ['*'],
                     credentials: false,
-                    additionalHeaders: ['content-type', 'x-session-id', 'authorization']
+                    additionalHeaders: ['content-type', 'x-session-id', 'authorization', 'origin']
                 },
                 validate: {
                     payload: Joi.object({
@@ -291,13 +314,14 @@ module.exports = {
 
                     console.log('📤 Sending prediction response:', response);
                     
-                    // Return response with explicit CORS headers
+                    // Return response with comprehensive CORS headers
                     return h.response(response)
                         .code(200)
                         .header('Access-Control-Allow-Origin', '*')
                         .header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-                        .header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-ID');
-
+                        .header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-ID, Origin, X-Requested-With')
+                        .header('Access-Control-Allow-Credentials', 'false')
+                        .header('Content-Type', 'application/json');
                 } catch (error) {
                     console.error('❌ Prediction error:', error);
                     return h.response({
@@ -317,6 +341,10 @@ module.exports = {
             method: 'GET',
             path: '/api/predictions',
             options: {
+                cors: {
+                    origin: ['*'],
+                    credentials: false
+                },
                 validate: {
                     query: Joi.object({
                         page: Joi.number().integer().min(1).default(1),
@@ -359,8 +387,9 @@ module.exports = {
                             total: count,
                             totalPages: Math.ceil(count / limit)
                         }
-                    }).code(200);
-
+                    })
+                    .code(200)
+                    .header('Access-Control-Allow-Origin', '*');
                 } catch (error) {
                     console.error('❌ Get predictions error:', error);
                     return h.response({
@@ -376,6 +405,12 @@ module.exports = {
         server.route({
             method: 'GET',
             path: '/api/statistics',
+            options: {
+                cors: {
+                    origin: ['*'],
+                    credentials: false
+                }
+            },
             handler: async (request, h) => {
                 try {
                     const { data, error } = await supabase
@@ -404,8 +439,9 @@ module.exports = {
                     return h.response({
                         success: true,
                         statistics: stats
-                    }).code(200);
-
+                    })
+                    .code(200)
+                    .header('Access-Control-Allow-Origin', '*');
                 } catch (error) {
                     console.error('❌ Statistics error:', error);
                     return h.response({
@@ -414,33 +450,6 @@ module.exports = {
                         message: error.message
                     }).code(500);
                 }
-            }
-        });
-
-        // Add OPTIONS handler for preflight requests
-        server.route({
-            method: 'OPTIONS',
-            path: '/api/predict',
-            handler: (request, h) => {
-                return h.response()
-                    .code(200)
-                    .header('Access-Control-Allow-Origin', '*')
-                    .header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-                    .header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-ID')
-                    .header('Access-Control-Max-Age', '86400');
-            }
-        });
-
-        // Add OPTIONS handler for ml-health
-        server.route({
-            method: 'OPTIONS', 
-            path: '/api/ml-health',
-            handler: (request, h) => {
-                return h.response()
-                    .code(200)
-                    .header('Access-Control-Allow-Origin', '*')
-                    .header('Access-Control-Allow-Methods', 'GET, OPTIONS')
-                    .header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
             }
         });
     }
