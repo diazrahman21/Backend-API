@@ -205,6 +205,11 @@ module.exports = {
             method: 'POST',
             path: '/api/predict',
             options: {
+                cors: {
+                    origin: ['*'], // Allow all origins for prediction endpoint
+                    credentials: false,
+                    additionalHeaders: ['content-type', 'x-session-id', 'authorization']
+                },
                 validate: {
                     payload: Joi.object({
                         age: Joi.number().integer().min(1).max(120).required(),
@@ -253,7 +258,7 @@ module.exports = {
                         console.log('✅ Prediction saved to Supabase:', data[0]);
                     }
 
-                    // Enhanced response format
+                    // Enhanced response format with explicit CORS headers
                     const response = {
                         success: true,
                         prediction: {
@@ -266,7 +271,7 @@ module.exports = {
                         },
                         patient_data: {
                             age: inputData.age,
-                            gender: inputData.gender === 1 ? 'Female' : 'Male', // Fix: 1=Female, 2=Male
+                            gender: inputData.gender === 1 ? 'Female' : 'Male',
                             height: inputData.height,
                             weight: inputData.weight,
                             bmi: prediction.bmi,
@@ -285,7 +290,13 @@ module.exports = {
                     };
 
                     console.log('📤 Sending prediction response:', response);
-                    return h.response(response).code(200);
+                    
+                    // Return response with explicit CORS headers
+                    return h.response(response)
+                        .code(200)
+                        .header('Access-Control-Allow-Origin', '*')
+                        .header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+                        .header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-ID');
 
                 } catch (error) {
                     console.error('❌ Prediction error:', error);
@@ -294,7 +305,9 @@ module.exports = {
                         error: 'Internal server error',
                         message: error.message,
                         prediction_source: 'error'
-                    }).code(500);
+                    })
+                    .code(500)
+                    .header('Access-Control-Allow-Origin', '*');
                 }
             }
         });
@@ -401,6 +414,33 @@ module.exports = {
                         message: error.message
                     }).code(500);
                 }
+            }
+        });
+
+        // Add OPTIONS handler for preflight requests
+        server.route({
+            method: 'OPTIONS',
+            path: '/api/predict',
+            handler: (request, h) => {
+                return h.response()
+                    .code(200)
+                    .header('Access-Control-Allow-Origin', '*')
+                    .header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+                    .header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-ID')
+                    .header('Access-Control-Max-Age', '86400');
+            }
+        });
+
+        // Add OPTIONS handler for ml-health
+        server.route({
+            method: 'OPTIONS', 
+            path: '/api/ml-health',
+            handler: (request, h) => {
+                return h.response()
+                    .code(200)
+                    .header('Access-Control-Allow-Origin', '*')
+                    .header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+                    .header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
             }
         });
     }
