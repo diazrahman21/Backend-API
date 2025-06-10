@@ -1,6 +1,6 @@
 const Joi = require('@hapi/joi');
 const { createClient } = require('@supabase/supabase-js');
-const axios = require('axios'); // Add this import
+const axios = require('axios');
 
 // Initialize Supabase
 const supabase = createClient(
@@ -14,7 +14,6 @@ const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'https://api-ml-production.
 // Enhanced prediction function that integrates with ML service
 async function predictCardiovascularRisk(formData) {
     try {
-        // First, try ML service prediction
         const mlResponse = await axios.post(`${ML_SERVICE_URL}/api/predict`, {
             age: formData.age,
             gender: formData.gender === 1 ? 0 : 1, // Fix gender mapping: 1=female->0, 2=male->1
@@ -42,10 +41,10 @@ async function predictCardiovascularRisk(formData) {
             const responseData = mlResponse.data.data || mlResponse.data;
             
             // Extract prediction data with fallback values
-            const prediction = responseData.prediction !== undefined ? responseData.prediction : mlResponse.data.prediction;
-            const confidence = responseData.confidence || mlResponse.data.confidence || 0.5;
-            const probability = responseData.probability || mlResponse.data.probability || confidence;
-            const riskLevel = responseData.risk_level || mlResponse.data.risk_level || (prediction === 1 ? 'HIGH' : 'LOW');
+            const prediction = responseData.prediction !== undefined ? responseData.prediction : mlResponse.data.data.prediction;
+            const confidence = responseData.confidence || mlResponse.data.data.confidence || 0.5;
+            const probability = responseData.probability || mlResponse.data.data.probability || confidence;
+            const riskLevel = responseData.risk_level || mlResponse.data.data.risk_level || (prediction === 1 ? 'HIGH' : 'LOW');
             
             // Calculate BMI if not provided
             const heightInM = formData.height / 100;
@@ -62,8 +61,8 @@ async function predictCardiovascularRisk(formData) {
                 ml_details: {
                     model_confidence: confidence,
                     bmi_category: responseData.patient_data?.bmi_category || responseData.bmi_category || 'Unknown',
-                    interpretation: responseData.interpretation || mlResponse.data.interpretation || 'ML prediction completed',
-                    recommendation: responseData.result_message || mlResponse.data.result_message || responseData.recommendation || 'Follow medical advice'
+                    interpretation: responseData.interpretation || mlResponse.data.data.interpretation || 'ML prediction completed',
+                    recommendation: responseData.result_message || mlResponse.data.data.result_message || responseData.recommendation || 'Follow medical advice'
                 }
             };
         }
@@ -118,7 +117,6 @@ module.exports = {
             path: '/api/ml-health',
             handler: async (request, h) => {
                 try {
-                    // Try both /health and /api/health endpoints
                     let response;
                     try {
                         response = await axios.get(`${ML_SERVICE_URL}/api/health`, {
@@ -126,7 +124,6 @@ module.exports = {
                             headers: { 'Accept': 'application/json' }
                         });
                     } catch (err) {
-                        // Fallback to /health endpoint
                         response = await axios.get(`${ML_SERVICE_URL}/health`, {
                             timeout: 10000,
                             headers: { 'Accept': 'application/json' }

@@ -24,7 +24,8 @@
     "@hapi/hapi": "^21.3.2",
     "@hapi/joi": "^17.1.1",
     "@supabase/supabase-js": "^2.38.4",
-    "dotenv": "^16.3.1"
+    "dotenv": "^16.3.1",
+    "axios": "^1.6.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

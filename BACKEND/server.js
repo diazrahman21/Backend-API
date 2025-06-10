@@ -1,5 +1,5 @@
 const Hapi = require('@hapi/hapi');
-const axios = require('axios'); // Move axios import to top level
+const axios = require('axios');
 require('dotenv').config();
 
 const init = async () => {
@@ -45,7 +45,8 @@ const init = async () => {
     console.log('🔍 Testing ML service connection...');
     try {
         const response = await axios.get('https://api-ml-production.up.railway.app/api/health', {
-            timeout: 5000
+            timeout: 5000,
+            headers: { 'Accept': 'application/json' }
         });
         console.log('✅ ML Service connected successfully');
     } catch (error) {
