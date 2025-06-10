@@ -1,4 +1,5 @@
 const Hapi = require('@hapi/hapi');
+const axios = require('axios'); // Move axios import to top level
 require('dotenv').config();
 
 const init = async () => {
@@ -28,15 +29,29 @@ const init = async () => {
     console.log('  - http://localhost:5173 (Vite dev server)');
     console.log('  - http://localhost:3000 (Alternative frontend)');
     console.log('💾 Database: Supabase connected');
+    console.log('🤖 ML Service: https://api-ml-production.up.railway.app');
     console.log('📋 Available endpoints:');
     console.log('  - GET  / (API info)');
     console.log('  - GET  /api/health (Health check)');
     console.log('  - GET  /api/status (Server status)');
+    console.log('  - GET  /api/ml-health (ML service health check)');
     console.log('  - POST /api/predict (Cardiovascular prediction)');
     console.log('  - GET  /api/predictions (Get predictions)');
     console.log('  - GET  /api/statistics (Get statistics)');
     console.log('');
     console.log('🎯 Ready to accept requests from frontend!');
+    
+    // Test ML service connection on startup
+    console.log('🔍 Testing ML service connection...');
+    try {
+        const response = await axios.get('https://api-ml-production.up.railway.app/api/health', {
+            timeout: 5000
+        });
+        console.log('✅ ML Service connected successfully');
+    } catch (error) {
+        console.log('⚠️  ML Service connection failed - will use fallback prediction');
+        console.log(`   Error: ${error.message}`);
+    }
 };
 
 process.on('unhandledRejection', (err) => {
