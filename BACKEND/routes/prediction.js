@@ -16,7 +16,7 @@ async function predictCardiovascularRisk(formData) {
     try {
         const mlResponse = await axios.post(`${ML_SERVICE_URL}/api/predict`, {
             age: formData.age,
-            gender: formData.gender === 1 ? 0 : 1, // Fix gender mapping: 1=female->0, 2=male->1
+            gender: formData.gender === 1 ? 0 : 1, // 1=female->0, 2=male->1 (correct for ML model)
             height: formData.height,
             weight: formData.weight,
             ap_hi: formData.ap_hi,
@@ -41,10 +41,10 @@ async function predictCardiovascularRisk(formData) {
             const responseData = mlResponse.data.data || mlResponse.data;
             
             // Extract prediction data with fallback values
-            const prediction = responseData.prediction !== undefined ? responseData.prediction : mlResponse.data.data.prediction;
-            const confidence = responseData.confidence || mlResponse.data.data.confidence || 0.5;
-            const probability = responseData.probability || mlResponse.data.data.probability || confidence;
-            const riskLevel = responseData.risk_level || mlResponse.data.data.risk_level || (prediction === 1 ? 'HIGH' : 'LOW');
+            const prediction = responseData.prediction !== undefined ? responseData.prediction : mlResponse.data.prediction;
+            const confidence = responseData.confidence || mlResponse.data.confidence || 0.5;
+            const probability = responseData.probability || mlResponse.data.probability || confidence;
+            const riskLevel = responseData.risk_level || mlResponse.data.risk_level || (prediction === 1 ? 'HIGH' : 'LOW');
             
             // Calculate BMI if not provided
             const heightInM = formData.height / 100;
@@ -61,8 +61,8 @@ async function predictCardiovascularRisk(formData) {
                 ml_details: {
                     model_confidence: confidence,
                     bmi_category: responseData.patient_data?.bmi_category || responseData.bmi_category || 'Unknown',
-                    interpretation: responseData.interpretation || mlResponse.data.data.interpretation || 'ML prediction completed',
-                    recommendation: responseData.result_message || mlResponse.data.data.result_message || responseData.recommendation || 'Follow medical advice'
+                    interpretation: responseData.interpretation || mlResponse.data.interpretation || 'ML prediction completed',
+                    recommendation: responseData.result_message || mlResponse.data.result_message || responseData.recommendation || 'Follow medical advice'
                 }
             };
         }
@@ -82,7 +82,7 @@ async function predictCardiovascularRisk(formData) {
     
     const riskFactors = [
         formData.age > 55 ? 25 : formData.age > 45 ? 15 : 5,
-        formData.gender === 2 ? 10 : 5,
+        formData.gender === 2 ? 10 : 5, // Male (2) has higher risk than female (1)
         bmi > 30 ? 20 : bmi > 25 ? 10 : 0,
         formData.ap_hi > 140 ? 25 : formData.ap_hi > 120 ? 15 : 5,
         formData.ap_lo > 90 ? 20 : formData.ap_lo > 80 ? 10 : 5,
@@ -222,7 +222,7 @@ module.exports = {
                         },
                         patient_data: {
                             age: inputData.age,
-                            gender: inputData.gender === 2 ? 'Female' : 'Male',
+                            gender: inputData.gender === 1 ? 'Female' : 'Male', // Fix: 1=Female, 2=Male
                             height: inputData.height,
                             weight: inputData.weight,
                             bmi: prediction.bmi,
@@ -334,8 +334,8 @@ module.exports = {
                         highRisk: data.filter(item => item.risk_prediction === 1).length,
                         lowRisk: data.filter(item => item.risk_prediction === 0).length,
                         byGender: {
-                            male: data.filter(item => item.gender === 2).length,
-                            female: data.filter(item => item.gender === 1).length
+                            male: data.filter(item => item.gender === 2).length, // 2 = Male
+                            female: data.filter(item => item.gender === 1).length // 1 = Female
                         },
                         averageAge: data.length > 0 ? 
                             data.reduce((sum, item) => sum + item.age, 0) / data.length : 0,

@@ -8,6 +8,20 @@ const supabase = createClient(
 module.exports = {
     name: 'health-routes',
     register: async function (server) {
+        // Root endpoint
+        server.route({
+            method: 'GET',
+            path: '/',
+            handler: (request, h) => {
+                return {
+                    message: 'IllDetect Backend API',
+                    version: '1.0.0',
+                    status: 'healthy',
+                    timestamp: new Date().toISOString()
+                };
+            }
+        });
+
         // Health check endpoint
         server.route({
             method: 'GET',
@@ -67,33 +81,6 @@ module.exports = {
 
                 console.log('📊 Status check:', statusInfo);
                 return h.response(statusInfo).code(200);
-            }
-        });
-
-        // Root endpoint
-        server.route({
-            method: 'GET',
-            path: '/',
-            handler: (request, h) => {
-                return h.response({
-                    message: 'IllDetect Backend API - Cardiovascular Risk Prediction',
-                    version: process.env.API_VERSION || '1.0.0',
-                    status: 'active',
-                    documentation: 'https://github.com/capstone-project/illdetect',
-                    endpoints: {
-                        health: 'GET /api/health - Check API health status',
-                        status: 'GET /api/status - Get server status',
-                        predict: 'POST /api/predict - Submit cardiovascular prediction',
-                        predictions: 'GET /api/predictions - Get prediction history',
-                        statistics: 'GET /api/statistics - Get prediction statistics'
-                    },
-                    features: [
-                        'Cardiovascular risk prediction',
-                        'Data persistence with Supabase',
-                        'Real-time health monitoring',
-                        'CORS enabled for frontend integration'
-                    ]
-                }).code(200);
             }
         });
 
