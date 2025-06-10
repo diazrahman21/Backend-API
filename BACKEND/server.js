@@ -41,17 +41,34 @@ const init = async () => {
     console.log('');
     console.log('🎯 Ready to accept requests from frontend!');
     
-    // Test ML service connection on startup
+    // Test ML service connection on startup with retry
     console.log('🔍 Testing ML service connection...');
-    try {
-        const response = await axios.get('https://api-ml-production.up.railway.app/api/health', {
-            timeout: 5000,
-            headers: { 'Accept': 'application/json' }
-        });
-        console.log('✅ ML Service connected successfully');
-    } catch (error) {
-        console.log('⚠️  ML Service connection failed - will use fallback prediction');
-        console.log(`   Error: ${error.message}`);
+    let mlConnected = false;
+    const maxRetries = 3;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            console.log(`   Attempt ${attempt}/${maxRetries}...`);
+            const response = await axios.get('https://api-ml-production.up.railway.app/api/health', {
+                timeout: 10000,
+                headers: { 'Accept': 'application/json' }
+            });
+            console.log('✅ ML Service connected successfully');
+            mlConnected = true;
+            break;
+        } catch (error) {
+            console.log(`   Attempt ${attempt} failed: ${error.message}`);
+            if (attempt < maxRetries) {
+                console.log('   Retrying in 5 seconds...');
+                await new Promise(resolve => setTimeout(resolve, 5000));
+            }
+        }
+    }
+    
+    if (!mlConnected) {
+        console.log('⚠️  ML Service connection failed after all retries - will use fallback prediction');
+        console.log('   This is normal on first startup - ML service may still be booting up');
+        console.log('   Predictions will automatically switch to ML when service becomes available');
     }
 };
 

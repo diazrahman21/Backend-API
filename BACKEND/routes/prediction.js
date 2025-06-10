@@ -14,65 +14,91 @@ const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'https://api-ml-production.
 // Enhanced prediction function that integrates with ML service
 async function predictCardiovascularRisk(formData) {
     try {
-        const mlResponse = await axios.post(`${ML_SERVICE_URL}/api/predict`, {
-            age: formData.age,
-            gender: formData.gender === 1 ? 0 : 1, // 1=female->0, 2=male->1 (correct for ML model)
-            height: formData.height,
-            weight: formData.weight,
-            ap_hi: formData.ap_hi,
-            ap_lo: formData.ap_lo,
-            cholesterol: formData.cholesterol,
-            gluc: formData.gluc,
-            smoke: formData.smoke,
-            alco: formData.alco,
-            active: formData.active
-        }, {
-            timeout: 15000,
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            }
-        });
-
-        console.log('🔬 ML Service Response:', JSON.stringify(mlResponse.data, null, 2));
-
-        // Handle different response structures from Flask ML service
-        if (mlResponse.data && (mlResponse.data.success || mlResponse.data.prediction !== undefined)) {
-            const responseData = mlResponse.data.data || mlResponse.data;
-            
-            // Extract prediction data with fallback values
-            const prediction = responseData.prediction !== undefined ? responseData.prediction : mlResponse.data.prediction;
-            const confidence = responseData.confidence || mlResponse.data.confidence || 0.5;
-            const probability = responseData.probability || mlResponse.data.probability || confidence;
-            const riskLevel = responseData.risk_level || mlResponse.data.risk_level || (prediction === 1 ? 'HIGH' : 'LOW');
-            
-            // Calculate BMI if not provided
-            const heightInM = formData.height / 100;
-            const calculatedBMI = formData.weight / (heightInM * heightInM);
-            const bmi = responseData.patient_data?.bmi || responseData.bmi || calculatedBMI.toFixed(1);
-            
-            return {
-                risk: prediction,
-                confidence: Math.round(confidence * 100),
-                probability: probability,
-                risk_label: riskLevel.toUpperCase() === 'HIGH' ? 'High Risk' : 'Low Risk',
-                bmi: bmi.toString(),
-                source: 'ml_model',
-                ml_details: {
-                    model_confidence: confidence,
-                    bmi_category: responseData.patient_data?.bmi_category || responseData.bmi_category || 'Unknown',
-                    interpretation: responseData.interpretation || mlResponse.data.interpretation || 'ML prediction completed',
-                    recommendation: responseData.result_message || mlResponse.data.result_message || responseData.recommendation || 'Follow medical advice'
+        // Try multiple endpoints for ML service
+        const endpoints = [
+            `${ML_SERVICE_URL}/api/predict`,
+            `${ML_SERVICE_URL}/predict`
+        ];
+        
+        let mlResponse = null;
+        
+        for (const endpoint of endpoints) {
+            try {
+                console.log(`🔬 Trying ML endpoint: ${endpoint}`);
+                mlResponse = await axios.post(endpoint, {
+                    age: formData.age,
+                    gender: formData.gender === 1 ? 0 : 1,
+                    height: formData.height,
+                    weight: formData.weight,
+                    ap_hi: formData.ap_hi,
+                    ap_lo: formData.ap_lo,
+                    cholesterol: formData.cholesterol,
+                    gluc: formData.gluc,
+                    smoke: formData.smoke,
+                    alco: formData.alco,
+                    active: formData.active
+                }, {
+                    timeout: 20000, // Increase timeout for Railway cold start
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                if (mlResponse && mlResponse.data) {
+                    console.log('✅ ML Service responded successfully');
+                    break;
                 }
-            };
+            } catch (endpointError) {
+                console.log(`❌ Endpoint ${endpoint} failed:`, endpointError.message);
+                if (endpointError.response?.status) {
+                    console.log(`   Status: ${endpointError.response.status}`);
+                }
+                continue;
+            }
+        }
+
+        if (mlResponse && mlResponse.data) {
+            console.log('🔬 ML Service Response:', JSON.stringify(mlResponse.data, null, 2));
+
+            // Handle different response structures from Flask ML service
+            if (mlResponse.data && (mlResponse.data.success || mlResponse.data.prediction !== undefined)) {
+                const responseData = mlResponse.data.data || mlResponse.data;
+                
+                // Extract prediction data with fallback values
+                const prediction = responseData.prediction !== undefined ? responseData.prediction : mlResponse.data.prediction;
+                const confidence = responseData.confidence || mlResponse.data.confidence || 0.5;
+                const probability = responseData.probability || mlResponse.data.probability || confidence;
+                const riskLevel = responseData.risk_level || mlResponse.data.risk_level || (prediction === 1 ? 'HIGH' : 'LOW');
+                
+                // Calculate BMI if not provided
+                const heightInM = formData.height / 100;
+                const calculatedBMI = formData.weight / (heightInM * heightInM);
+                const bmi = responseData.patient_data?.bmi || responseData.bmi || calculatedBMI.toFixed(1);
+                
+                return {
+                    risk: prediction,
+                    confidence: Math.round(confidence * 100),
+                    probability: probability,
+                    risk_label: riskLevel.toUpperCase() === 'HIGH' ? 'High Risk' : 'Low Risk',
+                    bmi: bmi.toString(),
+                    source: 'ml_model',
+                    ml_details: {
+                        model_confidence: confidence,
+                        bmi_category: responseData.patient_data?.bmi_category || responseData.bmi_category || 'Unknown',
+                        interpretation: responseData.interpretation || mlResponse.data.interpretation || 'ML prediction completed',
+                        recommendation: responseData.result_message || mlResponse.data.result_message || responseData.recommendation || 'Follow medical advice'
+                    }
+                };
+            }
         }
     } catch (error) {
         console.warn('⚠️ ML Service unavailable, falling back to rule-based prediction:', {
             message: error.message,
             status: error.response?.status,
             statusText: error.response?.statusText,
-            url: `${ML_SERVICE_URL}/api/predict`,
-            responseData: error.response?.data
+            code: error.code,
+            url: `${ML_SERVICE_URL}/api/predict`
         });
     }
 
@@ -117,29 +143,46 @@ module.exports = {
             path: '/api/ml-health',
             handler: async (request, h) => {
                 try {
-                    let response;
-                    try {
-                        response = await axios.get(`${ML_SERVICE_URL}/api/health`, {
-                            timeout: 10000,
-                            headers: { 'Accept': 'application/json' }
-                        });
-                    } catch (err) {
-                        response = await axios.get(`${ML_SERVICE_URL}/health`, {
-                            timeout: 10000,
-                            headers: { 'Accept': 'application/json' }
-                        });
+                    // Try multiple health endpoints
+                    const healthEndpoints = [
+                        `${ML_SERVICE_URL}/api/health`,
+                        `${ML_SERVICE_URL}/health`,
+                        `${ML_SERVICE_URL}/ping`
+                    ];
+                    
+                    let response = null;
+                    let usedEndpoint = '';
+                    
+                    for (const endpoint of healthEndpoints) {
+                        try {
+                            response = await axios.get(endpoint, {
+                                timeout: 15000,
+                                headers: { 'Accept': 'application/json' }
+                            });
+                            usedEndpoint = endpoint;
+                            break;
+                        } catch (err) {
+                            console.log(`Health check failed for ${endpoint}:`, err.message);
+                            continue;
+                        }
                     }
                     
-                    return h.response({
-                        success: true,
-                        ml_service: {
-                            status: 'connected',
-                            url: ML_SERVICE_URL,
-                            health: response.data,
-                            endpoint_used: response.config.url,
-                            timestamp: new Date().toISOString()
-                        }
-                    }).code(200);
+                    if (response && response.data) {
+                        return h.response({
+                            success: true,
+                            ml_service: {
+                                status: 'connected',
+                                url: ML_SERVICE_URL,
+                                health: response.data,
+                                endpoint_used: usedEndpoint,
+                                response_time: `${Date.now()}ms`,
+                                timestamp: new Date().toISOString()
+                            }
+                        }).code(200);
+                    }
+                    
+                    throw new Error('All health endpoints failed');
+                    
                 } catch (error) {
                     return h.response({
                         success: false,
@@ -148,7 +191,8 @@ module.exports = {
                             url: ML_SERVICE_URL,
                             error: error.message,
                             status_code: error.response?.status,
-                            response_data: error.response?.data,
+                            note: 'ML service may be starting up (cold start)',
+                            fallback: 'rule-based prediction available',
                             timestamp: new Date().toISOString()
                         }
                     }).code(503);
