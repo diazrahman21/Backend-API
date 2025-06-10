@@ -2,6 +2,22 @@ const Joi = require('@hapi/joi');
 const { createClient } = require('@supabase/supabase-js');
 const axios = require('axios');
 
+// Gender Mapping Constants
+const FRONTEND_TO_DATASET = {
+    0: 1, // Frontend Female (0) -> Dataset Female (1)
+    1: 2  // Frontend Male (1) -> Dataset Male (2)
+};
+
+const DATASET_TO_FRONTEND = {
+    1: 0, // Dataset Female (1) -> Frontend Female (0)
+    2: 1  // Dataset Male (2) -> Frontend Male (1)
+};
+
+const DATASET_TO_ML = {
+    1: 0, // Dataset Female (1) -> ML Female (0)
+    2: 1  // Dataset Male (2) -> ML Male (1)
+};
+
 // Initialize Supabase
 const supabase = createClient(
     process.env.SUPABASE_URL,
@@ -27,7 +43,7 @@ async function predictCardiovascularRisk(formData) {
                 console.log(`🔬 Trying ML endpoint: ${endpoint}`);
                 mlResponse = await axios.post(endpoint, {
                     age: formData.age,
-                    gender: formData.gender === 1 ? 0 : 1,
+                    gender: DATASET_TO_ML[formData.gender], // Use mapping constant
                     height: formData.height,
                     weight: formData.weight,
                     ap_hi: formData.ap_hi,
@@ -236,7 +252,8 @@ module.exports = {
                 validate: {
                     payload: Joi.object({
                         age: Joi.number().integer().min(1).max(120).required(),
-                        gender: Joi.number().integer().valid(1, 2).required(),
+                        gender: Joi.number().integer().valid(1, 2).optional(), // Dataset format
+                        sex: Joi.number().integer().valid(0, 1).optional(), // Frontend format
                         height: Joi.number().integer().min(100).max(250).required(),
                         weight: Joi.number().integer().min(30).max(200).required(),
                         ap_hi: Joi.number().integer().min(80).max(250).required(),
@@ -246,7 +263,7 @@ module.exports = {
                         smoke: Joi.number().integer().valid(0, 1).required(),
                         alco: Joi.number().integer().valid(0, 1).required(),
                         active: Joi.number().integer().valid(0, 1).required()
-                    })
+                    }).or('gender', 'sex')
                 }
             },
             handler: async (request, h) => {
@@ -254,12 +271,29 @@ module.exports = {
                     const inputData = request.payload;
                     console.log('📥 Received prediction request:', inputData);
                     
+                    // Handle field mapping using constants
+                    const normalizedData = {
+                        age: inputData.age,
+                        gender: inputData.gender || FRONTEND_TO_DATASET[inputData.sex], // Use mapping constant
+                        height: inputData.height,
+                        weight: inputData.weight,
+                        ap_hi: inputData.ap_hi,
+                        ap_lo: inputData.ap_lo,
+                        cholesterol: inputData.cholesterol,
+                        gluc: inputData.gluc,
+                        smoke: inputData.smoke,
+                        alco: inputData.alco,
+                        active: inputData.active
+                    };
+                    
+                    console.log('📊 Normalized data (Dataset format):', normalizedData);
+                    
                     // Generate prediction with ML integration
-                    const prediction = await predictCardiovascularRisk(inputData);
+                    const prediction = await predictCardiovascularRisk(normalizedData);
                     
                     // Save to Supabase with enhanced data
                     const predictionData = {
-                        ...inputData,
+                        ...normalizedData,
                         risk_prediction: prediction.risk,
                         confidence_score: prediction.confidence,
                         probability: prediction.probability,
@@ -281,7 +315,7 @@ module.exports = {
                         console.log('✅ Prediction saved to Supabase:', data[0]);
                     }
 
-                    // Enhanced response format with explicit CORS headers
+                    // Enhanced response format
                     const response = {
                         success: true,
                         prediction: {
@@ -293,26 +327,48 @@ module.exports = {
                             source: prediction.source
                         },
                         patient_data: {
-                            age: inputData.age,
-                            gender: inputData.gender === 1 ? 'Female' : 'Male',
-                            height: inputData.height,
-                            weight: inputData.weight,
+                            age: normalizedData.age,
+                            gender: normalizedData.gender === 1 ? 'Female' : 'Male', // Dataset format text
+                            sex: DATASET_TO_FRONTEND[normalizedData.gender], // Frontend format
+                            height: normalizedData.height,
+                            weight: normalizedData.weight,
                             bmi: prediction.bmi,
-                            blood_pressure: `${inputData.ap_hi}/${inputData.ap_lo}`,
-                            cholesterol: inputData.cholesterol === 1 ? 'Normal' : inputData.cholesterol === 2 ? 'Above Normal' : 'Well Above Normal',
-                            glucose: inputData.gluc === 1 ? 'Normal' : inputData.gluc === 2 ? 'Above Normal' : 'Well Above Normal',
+                            blood_pressure: `${normalizedData.ap_hi}/${normalizedData.ap_lo}`,
+                            cholesterol: normalizedData.cholesterol === 1 ? 'Normal' : normalizedData.cholesterol === 2 ? 'Above Normal' : 'Well Above Normal',
+                            glucose: normalizedData.gluc === 1 ? 'Normal' : normalizedData.gluc === 2 ? 'Above Normal' : 'Well Above Normal',
                             lifestyle: {
-                                smoking: inputData.smoke === 1 ? 'Yes' : 'No',
-                                alcohol: inputData.alco === 1 ? 'Yes' : 'No',
-                                physical_activity: inputData.active === 1 ? 'Yes' : 'No'
+                                smoking: normalizedData.smoke === 1 ? 'Yes' : 'No',
+                                alcohol: normalizedData.alco === 1 ? 'Yes' : 'No',
+                                physical_activity: normalizedData.active === 1 ? 'Yes' : 'No'
                             }
                         },
                         ml_insights: prediction.ml_details || null,
                         saved: !error,
-                        message: 'Prediction completed successfully'
+                        message: 'Prediction completed successfully',
+                        // Frontend compatibility format
+                        data: {
+                            prediction: prediction.risk,
+                            confidence: prediction.confidence,
+                            probability: prediction.probability,
+                            risk_level: prediction.risk_label === 'High Risk' ? 'HIGH' : 'LOW',
+                            patient_data: {
+                                bmi: parseFloat(prediction.bmi),
+                                bmi_category: prediction.ml_details?.bmi_category || 'Unknown',
+                                sex: DATASET_TO_FRONTEND[normalizedData.gender] // Frontend format in data section
+                            },
+                            interpretation: prediction.ml_details?.interpretation || 'Prediction completed',
+                            result_message: prediction.ml_details?.recommendation || 'Please consult with healthcare professional'
+                        },
+                        // Add mapping reference for debugging
+                        _mapping_info: {
+                            received_format: inputData.sex !== undefined ? 'frontend' : 'dataset',
+                            dataset_gender: normalizedData.gender,
+                            frontend_sex: DATASET_TO_FRONTEND[normalizedData.gender],
+                            ml_gender: DATASET_TO_ML[normalizedData.gender]
+                        }
                     };
 
-                    console.log('📤 Sending prediction response:', response);
+                    console.log('📤 Sending prediction response with mapping info');
                     
                     // Return response with comprehensive CORS headers
                     return h.response(response)
@@ -322,6 +378,7 @@ module.exports = {
                         .header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-ID, Origin, X-Requested-With')
                         .header('Access-Control-Allow-Credentials', 'false')
                         .header('Content-Type', 'application/json');
+                        
                 } catch (error) {
                     console.error('❌ Prediction error:', error);
                     return h.response({

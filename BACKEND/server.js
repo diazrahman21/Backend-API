@@ -5,10 +5,15 @@ require('dotenv').config();
 const init = async () => {
     const server = Hapi.server({
         port: process.env.PORT || 5001,
-        host: process.env.HOST || '0.0.0.0',
+        host: process.env.HOST || '0.0.0.0', // Important for production
         routes: {
             cors: {
-                origin: ['*'], // Allow all origins temporarily for testing
+                origin: [
+                    'http://localhost:5173',
+                    'http://localhost:3000',
+                    'https://your-frontend-domain.vercel.app', // Add actual frontend URL
+                    'https://your-frontend-domain.netlify.app'
+                ],
                 headers: [
                     'Accept', 
                     'Authorization', 

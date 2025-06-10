@@ -1,9 +1,34 @@
 {
+  "name": "illdetect-backend",
+  "version": "1.0.0",
+  "description": "IllDetect Cardiovascular Prediction Backend API",
+  "main": "BACKEND/server.js",
+  "scripts": {
+    "start": "node BACKEND/server.js",
+    "dev": "nodemon BACKEND/server.js",
+    "install-backend": "cd BACKEND && npm install",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
   "dependencies": {
-    "@hapi/hapi": "^21.4.0",
+    "@hapi/hapi": "^21.3.0",
     "@hapi/joi": "^17.1.1",
-    "@supabase/supabase-js": "^2.50.0",
-    "axios": "^1.9.0",
-    "dotenv": "^16.5.0"
-  }
+    "@supabase/supabase-js": "^2.38.0",
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "keywords": [
+    "cardiovascular",
+    "prediction",
+    "healthcare",
+    "ml",
+    "api"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
 }
