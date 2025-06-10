@@ -1,5 +1,6 @@
 const Joi = require('@hapi/joi');
 const { createClient } = require('@supabase/supabase-js');
+const axios = require('axios'); // Add this import
 
 // Initialize Supabase
 const supabase = createClient(
@@ -7,8 +8,76 @@ const supabase = createClient(
     process.env.SUPABASE_ANON_KEY
 );
 
-// Mock prediction function
-function predictCardiovascularRisk(formData) {
+// ML Service Configuration
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'https://api-ml-production.up.railway.app';
+
+// Enhanced prediction function that integrates with ML service
+async function predictCardiovascularRisk(formData) {
+    try {
+        // First, try ML service prediction
+        const mlResponse = await axios.post(`${ML_SERVICE_URL}/api/predict`, {
+            age: formData.age,
+            gender: formData.gender === 1 ? 0 : 1, // Fix gender mapping: 1=female->0, 2=male->1
+            height: formData.height,
+            weight: formData.weight,
+            ap_hi: formData.ap_hi,
+            ap_lo: formData.ap_lo,
+            cholesterol: formData.cholesterol,
+            gluc: formData.gluc,
+            smoke: formData.smoke,
+            alco: formData.alco,
+            active: formData.active
+        }, {
+            timeout: 15000,
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            }
+        });
+
+        console.log('🔬 ML Service Response:', JSON.stringify(mlResponse.data, null, 2));
+
+        // Handle different response structures from Flask ML service
+        if (mlResponse.data && (mlResponse.data.success || mlResponse.data.prediction !== undefined)) {
+            const responseData = mlResponse.data.data || mlResponse.data;
+            
+            // Extract prediction data with fallback values
+            const prediction = responseData.prediction !== undefined ? responseData.prediction : mlResponse.data.prediction;
+            const confidence = responseData.confidence || mlResponse.data.confidence || 0.5;
+            const probability = responseData.probability || mlResponse.data.probability || confidence;
+            const riskLevel = responseData.risk_level || mlResponse.data.risk_level || (prediction === 1 ? 'HIGH' : 'LOW');
+            
+            // Calculate BMI if not provided
+            const heightInM = formData.height / 100;
+            const calculatedBMI = formData.weight / (heightInM * heightInM);
+            const bmi = responseData.patient_data?.bmi || responseData.bmi || calculatedBMI.toFixed(1);
+            
+            return {
+                risk: prediction,
+                confidence: Math.round(confidence * 100),
+                probability: probability,
+                risk_label: riskLevel.toUpperCase() === 'HIGH' ? 'High Risk' : 'Low Risk',
+                bmi: bmi.toString(),
+                source: 'ml_model',
+                ml_details: {
+                    model_confidence: confidence,
+                    bmi_category: responseData.patient_data?.bmi_category || responseData.bmi_category || 'Unknown',
+                    interpretation: responseData.interpretation || mlResponse.data.interpretation || 'ML prediction completed',
+                    recommendation: responseData.result_message || mlResponse.data.result_message || responseData.recommendation || 'Follow medical advice'
+                }
+            };
+        }
+    } catch (error) {
+        console.warn('⚠️ ML Service unavailable, falling back to rule-based prediction:', {
+            message: error.message,
+            status: error.response?.status,
+            statusText: error.response?.statusText,
+            url: `${ML_SERVICE_URL}/api/predict`,
+            responseData: error.response?.data
+        });
+    }
+
+    // Fallback to rule-based prediction
     const heightInM = formData.height / 100;
     const bmi = formData.weight / (heightInM * heightInM);
     
@@ -35,14 +104,62 @@ function predictCardiovascularRisk(formData) {
         confidence,
         probability,
         risk_label: risk === 1 ? 'High Risk' : 'Low Risk',
-        bmi: bmi.toFixed(1)
+        bmi: bmi.toFixed(1),
+        source: 'rule_based'
     };
 }
 
 module.exports = {
     name: 'prediction-routes',
     register: async function (server) {
-        // Prediction endpoint
+        // Health check endpoint for ML service
+        server.route({
+            method: 'GET',
+            path: '/api/ml-health',
+            handler: async (request, h) => {
+                try {
+                    // Try both /health and /api/health endpoints
+                    let response;
+                    try {
+                        response = await axios.get(`${ML_SERVICE_URL}/api/health`, {
+                            timeout: 10000,
+                            headers: { 'Accept': 'application/json' }
+                        });
+                    } catch (err) {
+                        // Fallback to /health endpoint
+                        response = await axios.get(`${ML_SERVICE_URL}/health`, {
+                            timeout: 10000,
+                            headers: { 'Accept': 'application/json' }
+                        });
+                    }
+                    
+                    return h.response({
+                        success: true,
+                        ml_service: {
+                            status: 'connected',
+                            url: ML_SERVICE_URL,
+                            health: response.data,
+                            endpoint_used: response.config.url,
+                            timestamp: new Date().toISOString()
+                        }
+                    }).code(200);
+                } catch (error) {
+                    return h.response({
+                        success: false,
+                        ml_service: {
+                            status: 'disconnected',
+                            url: ML_SERVICE_URL,
+                            error: error.message,
+                            status_code: error.response?.status,
+                            response_data: error.response?.data,
+                            timestamp: new Date().toISOString()
+                        }
+                    }).code(503);
+                }
+            }
+        });
+
+        // Enhanced prediction endpoint
         server.route({
             method: 'POST',
             path: '/api/predict',
@@ -68,19 +185,20 @@ module.exports = {
                     const inputData = request.payload;
                     console.log('📥 Received prediction request:', inputData);
                     
-                    // Generate prediction
-                    const prediction = predictCardiovascularRisk(inputData);
+                    // Generate prediction with ML integration
+                    const prediction = await predictCardiovascularRisk(inputData);
                     
-                    // Save to Supabase
+                    // Save to Supabase with enhanced data
                     const predictionData = {
                         ...inputData,
                         risk_prediction: prediction.risk,
                         confidence_score: prediction.confidence,
                         probability: prediction.probability,
                         bmi: parseFloat(prediction.bmi),
-                        prediction_source: 'hapi_api',
+                        prediction_source: prediction.source,
                         user_agent: request.headers['user-agent'] || null,
-                        session_id: `session_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`
+                        session_id: `session_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`,
+                        ml_details: prediction.ml_details || null
                     };
 
                     const { data, error } = await supabase
@@ -94,20 +212,47 @@ module.exports = {
                         console.log('✅ Prediction saved to Supabase:', data[0]);
                     }
 
-                    console.log('📤 Sending prediction response:', prediction);
-                    return h.response({
+                    // Enhanced response format
+                    const response = {
                         success: true,
-                        prediction,
+                        prediction: {
+                            risk: prediction.risk,
+                            confidence: prediction.confidence,
+                            probability: prediction.probability,
+                            risk_label: prediction.risk_label,
+                            bmi: prediction.bmi,
+                            source: prediction.source
+                        },
+                        patient_data: {
+                            age: inputData.age,
+                            gender: inputData.gender === 2 ? 'Female' : 'Male',
+                            height: inputData.height,
+                            weight: inputData.weight,
+                            bmi: prediction.bmi,
+                            blood_pressure: `${inputData.ap_hi}/${inputData.ap_lo}`,
+                            cholesterol: inputData.cholesterol === 1 ? 'Normal' : inputData.cholesterol === 2 ? 'Above Normal' : 'Well Above Normal',
+                            glucose: inputData.gluc === 1 ? 'Normal' : inputData.gluc === 2 ? 'Above Normal' : 'Well Above Normal',
+                            lifestyle: {
+                                smoking: inputData.smoke === 1 ? 'Yes' : 'No',
+                                alcohol: inputData.alco === 1 ? 'Yes' : 'No',
+                                physical_activity: inputData.active === 1 ? 'Yes' : 'No'
+                            }
+                        },
+                        ml_insights: prediction.ml_details || null,
                         saved: !error,
                         message: 'Prediction completed successfully'
-                    }).code(200);
+                    };
+
+                    console.log('📤 Sending prediction response:', response);
+                    return h.response(response).code(200);
 
                 } catch (error) {
                     console.error('❌ Prediction error:', error);
                     return h.response({
                         success: false,
                         error: 'Internal server error',
-                        message: error.message
+                        message: error.message,
+                        prediction_source: 'error'
                     }).code(500);
                 }
             }
